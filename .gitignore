@@ -60,3 +60,5 @@ target/
 *.txt
 #Ipython Notebook
 .ipynb_checkpoints
+
+config.ini
