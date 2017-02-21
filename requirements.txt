@@ -1,2 +1,5 @@
-irc3==0.8.9
-markovify==0.3.0
+requests
+irc3
+markovify
+discord.py
+discord.py[voice]
