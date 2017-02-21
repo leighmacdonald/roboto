@@ -100,7 +100,7 @@ class MarkovPlugin(object):
         self.input_lines = 0
         self.ignored = ["boreasbot"]
         self.state_size = state_size
-
+        self.last_cmd_time = 0
         self.rebuild_chain()
 
     def rebuild_chain(self):
@@ -140,15 +140,18 @@ class MarkovPlugin(object):
     async def parse_input(self, mask, target, data, event):
         if mask.nick.lower() in self.ignored:
             return
+        args = data.split(" ")
         if data.startswith("~talk"):
-            t = self.model.make_short_sentence(140)
+            if len(args) >= 2:
+                t = self.model.make_sentence_with_start(" ".join(args[1:]))
+            else:
+                t = self.model.make_short_sentence(140)
             time.sleep(1)
             if t:
                 self.bot.privmsg(target, "> " + t)
             else:
                 print("No results generated")
         elif data.startswith("~rank"):
-            args = data.split(" ")
             if len(args) > 1:
                 bnet = args[1].replace("#", "-")
             else:
