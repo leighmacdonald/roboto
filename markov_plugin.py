@@ -143,9 +143,10 @@ class MarkovPlugin(object):
         args = data.split(" ")
         if data.startswith("~talk"):
             if len(args) >= 2:
-                t = self.model.make_sentence_with_start(" ".join(args[1:]))
+                v = " ".join(args[1:])
+                t = self.model.make_sentence_with_start(v)
             else:
-                t = self.model.make_short_sentence(140)
+                t = self.model.make_sentence(tries=20)
             time.sleep(1)
             if t:
                 self.bot.privmsg(target, "> " + t)
@@ -155,7 +156,7 @@ class MarkovPlugin(object):
             if len(args) > 1:
                 bnet = args[1].replace("#", "-")
             else:
-                bnet = "manOFsnow-1894"
+                bnet = config.get("bnet_id")
             stats = await get_player_stats(bnet)
             self.bot.privmsg(target, "> {}: SR:{} LVL:{} W/L: {}/{} K/D: {}/{}".format(
                 bnet, stats['rank'], stats['level'], stats['wins'],
