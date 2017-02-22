@@ -1,12 +1,10 @@
 from urllib.parse import unquote_plus
-
 import aiohttp_jinja2
 import asyncio
 import jinja2
 from aiohttp import web
 from os.path import join, abspath, dirname
-from roboto import disc
-from roboto import media, config, loop
+from roboto import disc, media, config, loop
 
 web_app = web.Application(loop=loop)
 
@@ -36,10 +34,7 @@ async def handle_play(request):
         full_path = join(config.get("music_path"), fp.path)
         if media.play_file(voice_channel, full_path):
             media.now_playing = fp.path
-            msg = "Now Playing: {}".format(media.now_playing)
-            chan_id = config.get("chat_channel")
-            channel = disc.dc.get_channel(str(chan_id))
-            await disc.dc.send_message(channel, content=msg)
+            await media.send_now_playing()
         media.media_idx = int(idx)
     return {"file_name": full_path, "current_idx": media.media_idx}
 

@@ -7,6 +7,8 @@ import ipgetter
 from roboto import config
 
 # Active player instance
+from roboto import disc
+
 media_player = None
 
 # Current index of active media file
@@ -44,6 +46,12 @@ def is_media_file(path):
         return splitext(path)[1].lower() in valid_music_ext
     except IndexError:
         return False
+
+
+async def send_now_playing():
+    msg = "Now Playing: {}".format(now_playing)
+    channel = disc.dc.get_channel(str(config.get("chat_channel")))
+    await disc.dc.send_message(channel, content=msg)
 
 
 @lru_cache(maxsize=None)
@@ -116,15 +124,20 @@ def music_stop(player):
     if player:
         if player.is_playing():
             player.stop()
-        player.join()
+        if player.is_alive():
+            r = player.join(timeout=5)
         return True
     return False
+
+ext_ip = None
 
 
 @lru_cache(maxsize=None)
 def music_playlist_url():
+    global ext_ip
     try:
-        ext_ip = ipgetter.myip()
+        if not ext_ip:
+            ext_ip = ipgetter.myip()
     except Exception:
         ext_ip = "0.0.0.0"
-    return "http://{}:{}".format(ext_ip, config.get("http_port", 8080))
+    return "http://{}:{}#{}".format(ext_ip, config.get("http_port", 8080), media_idx)

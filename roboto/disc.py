@@ -18,7 +18,6 @@ async def on_message(message):
 async def on_ready():
     global voice_channel
     print("logged in: {}/{}".format(dc.user.name, dc.user.id))
-    chan_id = config.get("chat_channel")
     for channel in dc.get_all_channels():
         if channel.type == ChannelType.voice and channel.id in config.get("voice_channels", []):
             voice_channel = await dc.join_voice_channel(channel)
