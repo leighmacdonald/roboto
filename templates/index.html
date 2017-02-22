@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Roboto Playlist</title>
+</head>
+<body>
+<style>
+    .dir {
+         padding-left: 40px;
+         color: red;
+    }
+</style>
+{% if now_playing %}
+    <h2>Playing: {{ now_playing }}</h2>
+{% endif %}
+<ul>
+{% for item in entries %}
+    {% if item.is_dir %}
+        <li class="dir"><a href="/play?path={{ item.safe_path }}">{{ item.path }}</a></li>
+    {% else %}
+        <li class="file"><a href="/play?path={{ item.safe_path }}">{{ item.name() }}</a></li>
+    {% endif %}
+{% endfor %}
+    </ul>
+</body>
+</html>
