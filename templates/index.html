@@ -3,12 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <title>Roboto Playlist</title>
+    <!-- Compressed CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/foundation/6.3.0/css/foundation.min.css">
+
+    <!-- Compressed JavaScript -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/foundation/6.3.0/js/foundation.min.js"></script>
+
 </head>
 <body>
 <style>
-    .dir {
-         padding-left: 40px;
-         color: red;
+    .media_file {
+         padding-left: 0px;
+         margin-left: 0;
+
+    }
+    .playing {
+        font-weight: 700;
+        color: blue;
+    }
+    li:hover {
+        background-color: #ddd;
+    }
+    ul {
+        list-style-type: none;
+        margin-left: 0;
+        margin-right: 0;
+        padding-left: 0;
+        padding-right: 0;
+    }
+    a {
+        display: block;
+        padding-left: 10px;
+        padding-right: 10px;
     }
 </style>
 {% if now_playing %}
@@ -16,11 +42,7 @@
 {% endif %}
 <ul>
 {% for item in entries %}
-    {% if item.is_dir %}
-        <li class="dir"><a href="/play?path={{ item.safe_path }}">{{ item.path }}</a></li>
-    {% else %}
-        <li class="file"><a href="/play?path={{ item.safe_path }}">{{ item.name() }}</a></li>
-    {% endif %}
+    <li class="media_file{% if item.idx == current_idx %} playing{% endif %}"><a href="/play?idx={{ item.idx }}">{{ item.path }}</a></li>
 {% endfor %}
     </ul>
 </body>

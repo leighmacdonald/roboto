@@ -2,6 +2,7 @@
 import time
 import asyncio
 import logging
+from functools import lru_cache
 from operator import attrgetter
 from os import listdir
 from os.path import dirname, join, abspath, exists, isdir, sep, splitext
@@ -39,14 +40,15 @@ loop = asyncio.get_event_loop()
 web_app = web.Application(loop=loop)
 
 media_player = None
-
-
+media_idx = 0
+media_continuous = True
 ext_ip = None
 
 
 class MediaFile(object):
-    def __init__(self, path):
+    def __init__(self, path, idx=0):
         self.path = path
+        self.idx = idx
 
     def name(self):
         return self.path.split(sep)[-1]
@@ -70,11 +72,12 @@ def is_media_file(path):
         return False
 
 
-@aiohttp_jinja2.template('index.html')
-async def handle_index(request):
-    global media_player, now_playing
+@lru_cache(maxsize=None)
+def fetch_media_files(path=None):
+    if not path:
+        path = config.get('music_path', "")
     files = []
-    path = config.get('music_path', "")
+    idx = 0
     if exists(path) and isdir(path):
         for f in listdir(path):
             if isdir(join(path, f)):
@@ -85,18 +88,54 @@ async def handle_index(request):
                 if is_media_file(f):
                     files.append(MediaFile(f))
         files.sort(key=attrgetter("path"))
+        # Store index after sort process
+        for f in files:
+            f.idx = idx
+            idx += 1
+    return files
+
+
+@aiohttp_jinja2.template('index.html')
+async def handle_index(request):
+    global media_player, now_playing, media_idx
     return {
-        "entries": files,
-        "now_playing": now_playing if media_player and media_player.is_playing() else None
+        "entries": fetch_media_files(),
+        "now_playing": now_playing if media_player and media_player.is_playing() else None,
+        "current_idx": media_idx
     }
 
 
-def play_file(channel, full_path):
-    global media_player
-    if media_player:
-        media_player.stop()
-    media_player = channel.create_ffmpeg_player(full_path, use_avconv=True)
-    music_set_vol(media_player, 0.5)
+def after_media_handler(player):
+    music_stop(player)
+    if not media_continuous:
+        return
+    music_play_next(player)
+
+
+def music_play_next(player):
+    global media_idx, voice_channel, now_playing
+    vol = player.volume if player else 0.5
+    files = fetch_media_files()
+    media_idx += 1
+    try:
+        media_file = files[media_idx]
+    except IndexError:
+        return
+
+    full_path = join(config.get("music_path"), media_file.path)
+    if play_file(voice_channel, full_path, volume=vol):
+        now_playing = media_file.path
+        return True
+    return False
+
+
+def play_file(channel, full_path, volume=0.5):
+    global media_player, now_playing
+    if not channel:
+        return False
+    music_stop(media_player)
+    media_player = channel.create_ffmpeg_player(full_path, use_avconv=True, after=after_media_handler)
+    music_set_vol(media_player, volume)
     media_player.start()
     return True
 
@@ -107,8 +146,10 @@ def music_set_vol(player, vol):
 
 
 def music_stop(player):
-    if player and player.is_playing():
-        player.stop()
+    if player:
+        if player.is_playing():
+            player.stop()
+        player.join()
         return True
     return False
 
@@ -119,12 +160,20 @@ def music_playlist_url():
 
 @aiohttp_jinja2.template('play.html')
 async def handle_play(request):
-    global voice_channel, now_playing
-    v = unquote_plus(request.GET['path'])
-    full_path = join(config.get("music_path"), v)
-    if play_file(voice_channel, full_path):
-        now_playing = v
-    return {"file_name": v}
+    global voice_channel, now_playing, media_idx
+    full_path = None
+    idx = unquote_plus(request.GET['idx'])
+    file_list = fetch_media_files()
+    try:
+        fp = file_list[int(idx)]
+    except Exception:
+        pass
+    else:
+        full_path = join(config.get("music_path"), fp.path)
+        if play_file(voice_channel, full_path):
+            now_playing = fp.path
+        media_idx = int(idx)
+    return {"file_name": full_path}
 
 
 class MarkovModel(object):
@@ -136,7 +185,7 @@ class MarkovModel(object):
         self.rebuild_chain()
 
     def rebuild_chain(self):
-        print("Rebuilding chain...")
+        logger.info("Rebuilding chain...")
         if self.data_fp is not None:
             self.data_fp.close()
         try:
@@ -180,6 +229,8 @@ async def get_player_stats(battle_tag, region="us"):
 
     region_key = ""
     regions = {"kr", "eu", "us"}
+    if region.lower() not in regions:
+        return {}
     for kr in regions:
         try:
             d[kr]['stats']
@@ -236,6 +287,21 @@ def add_cmd_prefix(cmd):
     return "{}{}".format(config.get("cmd", "!"), cmd)
 
 
+class CommandDispatcher(object):
+    @staticmethod
+    def help():
+        return " :100: ".join([
+            "!rank {bnet}",
+            "!stop",
+            "!volume 0-100",
+            "!talk",
+            "!playlist",
+            "!next"
+        ])
+
+    commands = help
+
+
 async def parse_message(msg):
     args = msg.split()
     if msg.startswith(add_cmd_prefix("talk")):
@@ -244,7 +310,6 @@ async def parse_message(msg):
             t = model.make_sentence_with_start(v)
         else:
             t = model.make_sentence(tries=20)
-        time.sleep(1)
         return "> {}".format(t) if t else None
     elif msg.startswith(add_cmd_prefix("rank")):
         if len(args) > 1:
@@ -270,6 +335,11 @@ async def parse_message(msg):
                 music_set_vol(media_player, val)
             except TypeError:
                 return "Invalid number. 0-100 accepted"
+    elif msg.startswith(add_cmd_prefix("help")):
+        return CommandDispatcher.help()
+    elif msg.startswith(add_cmd_prefix("next")):
+        if music_play_next(media_player):
+            return "Now Playing: {}".format(now_playing)
 
 
 @irc3.plugin
@@ -328,12 +398,11 @@ def main():
     irc_bot = IrcBot.from_config(config, loop=loop)
     irc_bot.run(forever=False)
 
+    # Configure & load HTTP Interface
     template_path = join(abspath(dirname(__file__)), 'templates')
     aiohttp_jinja2.setup(web_app, loader=jinja2.FileSystemLoader(template_path))
-    # Configure & load HTTP Interface
     web_app.router.add_get("/", handle_index)
     web_app.router.add_get("/play", handle_play)
-
     http_server = loop.create_server(
         web_app.make_handler(),
         config.get("http_host", "localhost"),
