@@ -42,7 +42,7 @@
 {% endif %}
 <ul>
 {% for item in entries %}
-    <li class="media_file{% if item.idx == current_idx %} playing{% endif %}"><a href="/play?idx={{ item.idx }}">{{ item.path }}</a></li>
+    <li class="media_file{% if item.idx == current_idx %} playing{% endif %}"><a name="{{ item.idx }}" href="/play?idx={{ item.idx }}">{{ item.path }}</a></li>
 {% endfor %}
     </ul>
 </body>
