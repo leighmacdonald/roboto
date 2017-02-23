@@ -75,6 +75,14 @@ async def parse_message(msg):
     elif msg.startswith(text.add_cmd_prefix("next")):
         if media.music_play_next(media.media_player):
             return "Now Playing: {}".format(media.now_playing)
+    elif msg.startswith(text.add_cmd_prefix("yt")):
+        from roboto.disc import voice_channel
+        if len(args) >= 2:
+            url = args[1]
+        else:
+            url = "https://www.youtube.com/watch?v=qsNwDjUjbfs"
+        if await media.play_youtube(voice_channel, url):
+            return "Now Playing YT: {}".format(media.now_playing)
 
 from roboto import text
 model = text.MarkovModel(default_file_name)

@@ -15,7 +15,7 @@ class MarkovModel(object):
         if self.data_fp is not None:
             self.data_fp.close()
         try:
-            with open(self.log_file_name) as data_fp:
+            with open(self.log_file_name, encoding="utf8") as data_fp:
                 text = data_fp.read()
         except Exception:
             text = ""
@@ -27,6 +27,12 @@ class MarkovModel(object):
 
     def make_sentence(self, tries=20):
         return self.model.make_sentence(tries=tries)
+
+    def record(self, sentence):
+        norm_str = normalize(sentence)
+        if norm_str:
+            self.data_fp.write(norm_str + "\n")
+            self.data_fp.flush()
 
 
 def normalize(t):

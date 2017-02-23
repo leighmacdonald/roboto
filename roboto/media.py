@@ -105,11 +105,11 @@ def music_play_next(player):
 
 
 def play_file(channel, full_path, volume=0.5):
-    global media_player, now_playing
+    global media_player
     if not channel:
         return False
     music_stop(media_player)
-    media_player = channel.create_ffmpeg_player(full_path, use_avconv=True, after=after_media_handler)
+    media_player = channel.create_ffmpeg_player(full_path, use_avconv=False, after=after_media_handler)
     music_set_vol(media_player, volume)
     media_player.start()
     return True
@@ -127,9 +127,19 @@ def music_stop(player):
         if player.is_alive():
             r = player.join(timeout=5)
         return True
+    del player
     return False
 
 ext_ip = None
+
+async def play_youtube(channel, url, volume=0.5):
+    global media_player, now_playing
+    music_stop(media_player)
+    media_player = await channel.create_ytdl_player(url, use_avconv=False)
+    music_set_vol(media_player, volume)
+    media_player.start()
+    now_playing = media_player.title
+    return True
 
 
 @lru_cache(maxsize=None)
