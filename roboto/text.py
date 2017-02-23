@@ -1,3 +1,5 @@
+import string
+
 import markovify
 
 from roboto import config
@@ -50,3 +52,33 @@ def normalize(t):
 
 def add_cmd_prefix(cmd):
     return "{}{}".format(config.get("cmd", "!"), cmd)
+
+
+def parse_xchat_log(input_file, output_file):
+    ignores = ["http"]
+    ignores.extend(config.ignored_users)
+    with open(input_file) as input_fp:
+        with open(output_file, "w+") as output_fp:
+            for line in input_fp:
+                p = "".join(filter(string.printable[:-5].__contains__, line)).split(">", 1)
+                try:
+                    text = normalize(p[1])
+                    if not text:
+                        continue
+                    text_l = text.lower()
+                    skipped = False
+                    for ignore_txt in ignores:
+                        if ignore_txt in text_l:
+                            skipped = True
+                            break
+                    if skipped:
+                        continue
+                    if text.startswith("!"):
+                        continue
+                    if len(text) < 15:
+                        continue
+                    print(text)
+                except IndexError:
+                    pass
+                else:
+                    output_fp.write(text + "\n")

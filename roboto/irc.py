@@ -1,5 +1,4 @@
 import irc3
-
 from roboto import parse_message, model
 
 
