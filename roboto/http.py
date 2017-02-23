@@ -4,7 +4,7 @@ import asyncio
 import jinja2
 from aiohttp import web
 from os.path import join, abspath, dirname
-from roboto import disc, media, config, loop
+from roboto import media, config, loop
 
 web_app = web.Application(loop=loop)
 
@@ -28,7 +28,7 @@ async def handle_play(request):
     file_list = media.fetch_media_files(config.get("music_path"))
     try:
         fp = file_list[int(idx)]
-    except Exception:
+    except (IndexError, TypeError):
         pass
     else:
         full_path = join(config.get("music_path"), fp.path)

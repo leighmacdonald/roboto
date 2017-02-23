@@ -35,8 +35,7 @@ class CommandDispatcher(object):
 
 
 async def parse_message(msg):
-    from roboto import media
-    from roboto import overwatch
+    from roboto import media, overwatch
 
     args = msg.split()
     if msg.startswith(text.add_cmd_prefix("talk")):

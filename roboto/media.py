@@ -109,7 +109,7 @@ def play_file(channel, full_path, volume=0.5):
     if not channel:
         return False
     music_stop(media_player)
-    media_player = channel.create_ffmpeg_player(full_path, use_avconv=False, after=after_media_handler)
+    media_player = channel.create_ffmpeg_player(full_path, use_avconv=True, after=after_media_handler)
     music_set_vol(media_player, volume)
     media_player.start()
     return True
