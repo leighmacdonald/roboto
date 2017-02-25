@@ -1,8 +1,16 @@
 import string
-
+from urllib.parse import urlparse
 import markovify
-
 from roboto import config
+
+valid_url_schemas = ("http", "https")
+
+
+def valid_url(url: str, allowed_domains=None) -> bool:
+    u = urlparse(url, allow_fragments=False)
+    if allowed_domains and u.netloc not in allowed_domains:
+        return False
+    return u.scheme in valid_url_schemas and u.netloc
 
 
 class MarkovModel(object):

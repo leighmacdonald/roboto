@@ -1,6 +1,8 @@
 import aiohttp
-from roboto import headers
 
+headers = {
+    'User-Agent': 'Rotobot 1.0'
+}
 
 async def get_player_stats(battle_tag, region="us"):
     url = u"https://owapi.net/api/v3/u/{}/stats".format(battle_tag)

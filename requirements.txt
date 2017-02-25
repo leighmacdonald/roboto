@@ -1,3 +1,4 @@
+sqlalchemy
 youtube_dl
 aiohttp_jinja2
 ipgetter

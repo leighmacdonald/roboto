@@ -4,11 +4,9 @@ from os.path import sep, splitext, isdir, exists, join
 from os import listdir
 from urllib.parse import quote_plus
 import ipgetter
-from roboto import config
+from roboto import config, disc
 
 # Active player instance
-from roboto import disc
-
 media_player = None
 
 # Current index of active media file
@@ -109,7 +107,8 @@ def play_file(channel, full_path, volume=0.5):
     if not channel:
         return False
     music_stop(media_player)
-    media_player = channel.create_ffmpeg_player(full_path, use_avconv=True, after=after_media_handler)
+    avcon = config.get("use_avcon", True)
+    media_player = channel.create_ffmpeg_player(full_path, use_avconv=avcon, after=after_media_handler)
     music_set_vol(media_player, volume)
     media_player.start()
     return True

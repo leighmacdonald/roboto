@@ -1,11 +1,12 @@
 import irc3
-from roboto import parse_message, model
+from roboto import commands, markov_model
 
 
 @irc3.plugin
-class MarkovPlugin(object):
+class TwitchClient(object):
 
     def __init__(self, bot):
+
         self.bot = bot
         self.input_lines = 0
         try:
@@ -18,12 +19,17 @@ class MarkovPlugin(object):
     async def parse_input(self, mask, target, data, event):
         if mask.nick.lower() in self.ignored:
             return
-        msg = await parse_message(data)
-        if msg:
-            self.bot.privmsg(target, msg)
+        task = commands.parse_message(data)
+        if task:
+            task.set_client_twitch(self.bot)
+            task.set_source(commands.TaskSource.twitch)
+            task.set_channel(target)
+            task.set_user(mask.nick)
+            await commands.dispatcher.add_task(task)
         else:
-            model.record(data)
+            markov_model.record(data)
             self.input_lines += 1
-            if self.input_lines % 5 == 0:
-                model.rebuild_chain()
-            print(target, mask, data)
+            if self.input_lines % 1 == 0:
+                await commands.dispatcher.add_task(
+                    commands.TaskState(commands.Commands.rebuild_markov, []))
+                markov_model.rebuild_chain()

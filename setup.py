@@ -11,7 +11,9 @@ install_requires = [
     "irc3",
     "markovify",
     "discord.py",
-    "discord.py[voice]"
+    "discord.py[voice]",
+    "sqlalchemy",
+    "youtube_dl"
 ]
 
 setup(
@@ -23,7 +25,7 @@ setup(
     description=r'Discord/Twitch bot',
     author='Leigh MacDonald',
     author_email='leigh.macdonald@gmail.com',
-    long_description=open(join(dirname(__file__), "README.rst")).read(),
+    long_description=open(join(dirname(__file__), "README.md")).read(),
     url='https://github.com/leighmacdonald/roboto',
     packages=['roboto'],
     scripts=['scripts/roboto_cli.py'],
