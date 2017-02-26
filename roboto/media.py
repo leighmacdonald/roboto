@@ -102,9 +102,9 @@ def music_play_next(player):
     return False
 
 
-def play_file(channel, full_path, volume=0.5):
+def play_file(server, full_path, volume=0.5):
     global media_player
-    if not channel:
+    if not server:
         return False
     music_stop(media_player)
     avcon = config.get("use_avcon", True)

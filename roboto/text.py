@@ -1,9 +1,14 @@
 import string
+from logging import getLogger
 from urllib.parse import urlparse
 import markovify
+from sqlalchemy import orm
 from roboto import config
 
+
 valid_url_schemas = ("http", "https")
+
+log = getLogger()
 
 
 def valid_url(url: str, allowed_domains=None) -> bool:
@@ -14,23 +19,17 @@ def valid_url(url: str, allowed_domains=None) -> bool:
 
 
 class MarkovModel(object):
-    def __init__(self, log_file_name, state_size=2):
-        self.data_fp = None
-        self.log_file_name = log_file_name
+    def __init__(self, server_id, state_size=2):
         self.state_size = state_size
         self.model = None
-        self.rebuild_chain()
+        self.server_id = server_id
+        self._new_data = []
 
-    def rebuild_chain(self):
-        if self.data_fp is not None:
-            self.data_fp.close()
-        try:
-            with open(self.log_file_name, encoding="utf8") as data_fp:
-                text = data_fp.read()
-        except Exception:
-            text = ""
-        self.model = markovify.Text(text, state_size=self.state_size)
-        self.data_fp = open(self.log_file_name, "a+")
+    def rebuild_chain(self, session: orm.Session):
+        from roboto.model import UserMessage
+        msgs = UserMessage.get_server_msgs(session, self.server_id)
+        self.model = markovify.Text("".join([m.content for m in msgs]), state_size=self.state_size)
+        log.debug("Read {} server messages".format(len(msgs)))
 
     def make_sentence_with_start(self, start):
         return self.model.make_sentence_with_start(start)
@@ -39,10 +38,9 @@ class MarkovModel(object):
         return self.model.make_sentence(tries=tries)
 
     def record(self, sentence):
-        norm_str = normalize(sentence)
-        if norm_str:
-            self.data_fp.write(norm_str + "\n")
-            self.data_fp.flush()
+        s = normalize(sentence)
+        if s:
+            self._new_data.append("{}\n".format(s))
 
 
 def normalize(t):

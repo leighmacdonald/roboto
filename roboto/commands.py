@@ -4,7 +4,7 @@ import discord
 import irc3
 from sqlalchemy import orm
 from sqlalchemy.exc import DBAPIError
-from roboto import config, loop, logger, markov_model
+from roboto import config, loop, logger
 from roboto import media
 from roboto import overwatch
 from roboto import text
@@ -49,11 +49,13 @@ class Commands(Enum):
     next = 2
     stop = 3
     playlist = 4
+    join_voice = 5
     pl = 4
     talk = 10
     record = 11
     rank = 50
     rebuild_markov = 4
+    server_connect = 90
     help = 98
     unknown = 99
 
@@ -78,14 +80,16 @@ class Commands(Enum):
 
 
 class TaskState(object):
-    def __init__(self, command: Commands, args: list):
+    def __init__(self, command: Commands, args: list, server_id=None, source=None, channel=None, user=None,
+                 client_twitch=None, client_discord=None):
         self.command = command
         self.args = args
-        self.channel = None
-        self.source = None
-        self._user = None
-        self.client_twitch = None
-        self.client_discord = None
+        self.channel = channel
+        self.source = source
+        self._user = user
+        self._client_twitch = client_twitch
+        self._client_discord = client_discord
+        self.server_id = server_id
 
     def set_source(self, cmd_source: TaskSource):
         self.source = cmd_source
@@ -100,14 +104,14 @@ class TaskState(object):
         return self.source and self.channel and self._user and self.command
 
     def set_client_twitch(self, client: irc3.IrcBot):
-        if self.client_discord:
+        if self._client_discord:
             raise ValidationError("Twitch client already set")
-        self.client_twitch = client
+        self._client_twitch = client
 
     def set_client_discord(self, client: discord.Client):
-        if self.client_twitch:
+        if self._client_twitch:
             raise ValidationError("Discord client already set")
-        self.client_discord = client
+        self._client_discord = client
 
     def get_user(self, session: orm.Session):
         if self.source == TaskSource.discord:
@@ -116,6 +120,25 @@ class TaskState(object):
             return User.get(session, twitch_id=self._user)
         else:
             raise ValidationError("No _user value to search with")
+
+    def get_client_discord(self) -> discord.Client:
+        return self._client_discord
+
+    def get_client_twitch(self) -> irc3.IrcBot:
+        return self._client_twitch
+
+    def set_server_id(self, server_id):
+        self.server_id = server_id
+
+    async def server(self):
+        """
+
+        :rtype: roboto.state.ServerState
+        """
+        return await state.servers.get_server(self.server_id)
+
+    def __str__(self):
+        return "Server: {} Cmd: {} Args: {}".format(self.server_id, self.command.name, self.args)
 
 
 class CommandDispatcher(asyncio.Queue):
@@ -141,17 +164,25 @@ class CommandDispatcher(asyncio.Queue):
             except asyncio.QueueEmpty:
                 await asyncio.sleep(0.1)
             else:
-                await self.execute_task(task)
+                try:
+                    await self.execute_task(task)
+                except Exception as err:
+                    log.exception("Error executing task")
 
     async def add_task(self, task: TaskState) -> None:
         log.info("Adding task: {}".format(task))
         await self.put(task)
 
     @classmethod
-    def gen_help(cls, cmd_name=None) -> str:
+    def gen_help(cls, cmd_name=None, help_sep=" :100: ") -> str:
         prefix = config.get("prefix", "!")
-        if cmd_name and not cmd_name.startswith("do_"):
-            cmd_name = "do_{}".format(cmd_name)
+        if cmd_name:
+            try:
+                cmd_name = cmd_name.name
+            except AttributeError:
+                pass
+            if not cmd_name.startswith("do_"):
+                cmd_name = "do_{}".format(cmd_name)
         resp = []
         for k, v in cls.__dict__.items():
             if k.startswith("do_"):
@@ -162,7 +193,7 @@ class CommandDispatcher(asyncio.Queue):
                 except AttributeError:
                     pass
         if len(resp) > 1:
-            return " :100: ".join(resp)
+            return help_sep.join(resp)
         return resp[0]
 
     async def execute_task(self, task: TaskState):
@@ -174,13 +205,35 @@ class CommandDispatcher(asyncio.Queue):
         else:
             await fn(task)
 
+    @helpstr("Instruct the bot to join a voice channel")
+    async def do_join_voice(self, task: TaskState):
+        if not task.args:
+            return await self.send_message(task, self.gen_help(Commands.join_voice))
+        client = task.get_client_discord()
+        channel = client.get_channel(task.args[0])
+        # todo correct ???
+        if not client.is_voice_connected(channel.server):
+            await client.join_voice_channel(channel)
+
+    @staticmethod
+    async def do_server_connect(task: TaskState):
+        session = Session()
+        try:
+            server = await task.server()
+            server.markov_model.rebuild_chain(session)
+            session.commit()
+        except DBAPIError:
+            log.exception("Exception during server connect event")
+            session.rollback()
+
     @helpstr("Generate a random sentence")
     async def do_talk(self, task: TaskState):
+        server = await task.server()
         if len(task.args) >= 1:
             v = " ".join(task.args[1:])
-            t = markov_model.make_sentence_with_start(v)
+            t = server.markov_model.make_sentence_with_start(v)
         else:
-            t = markov_model.make_sentence(tries=20)
+            t = server.markov_model.make_sentence(tries=20)
         if not t:
             t = "Failed to generate message"
         return await self.send_message(task, t)
@@ -191,7 +244,7 @@ class CommandDispatcher(asyncio.Queue):
             return False
         session = Session()
         try:
-            UserMessage.record(session, task.get_user(session), task.source, task.channel, task.args[0])
+            UserMessage.record(session, task.get_user(session), task.source, task.server_id, task.channel, task.args[0])
             session.commit()
         except DBAPIError:
             session.rollback()
@@ -206,10 +259,10 @@ class CommandDispatcher(asyncio.Queue):
         if not message:
             return False
         if task.source == TaskSource.discord:
-            channel = task.client_discord.get_channel(task.channel)
-            await task.client_discord.send_message(channel, message)
+            channel = task._client_discord.get_channel(task.channel)
+            await task._client_discord.send_message(channel, message)
         elif task.source == TaskSource.twitch:
-            await task.client_twitch.privmsg(task.channel, message)
+            await task._client_twitch.privmsg(task.channel, message)
         else:
             log.debug(message)
         return True
@@ -271,3 +324,6 @@ class CommandDispatcher(asyncio.Queue):
             return await self.send_message(task, "Now Playing YT: {}".format(media.now_playing))
 
 dispatcher = CommandDispatcher(loop)
+
+# cyclic fix
+from roboto import state

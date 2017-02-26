@@ -2,6 +2,7 @@ import asyncio
 from os.path import abspath, join, dirname
 import logging
 
+
 config = {}
 
 logger = logging.getLogger('discord')
@@ -13,6 +14,3 @@ logger.addHandler(handler)
 default_file_name = abspath(join(dirname(dirname(__file__)), "corpus.txt"))
 
 loop = asyncio.get_event_loop()
-
-from roboto import text
-markov_model = text.MarkovModel(default_file_name)

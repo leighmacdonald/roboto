@@ -23,6 +23,18 @@ log.setLevel(logging.DEBUG)
 Base = declarative_base(cls=RepresentableBase)
 
 
+class Server(Base):
+    __tablename__ = "server"
+
+    server_id = Column(Integer, primary_key=True, autoincrement=False)
+    twitch_id = Column(Unicode, unique=True)
+    created_on = Column(DateTime, default=datetime.now())
+
+    @classmethod
+    def get(cls, session, server_id):
+        return session.query(cls).filter_by(server_id=server_id).one()
+
+
 class User(Base):
     __tablename__ = 'user'
 
@@ -77,6 +89,7 @@ class UserMessage(Base):
 
     msg_id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey(User.user_id), nullable=False)
+    server_id = Column(Unicode, nullable=False)
     source_id = Column(Enum(TaskSource), nullable=False)
     channel = Column(Unicode, nullable=False)
     content = Column(Unicode, nullable=False)
@@ -85,13 +98,33 @@ class UserMessage(Base):
     user = relationship("User")
 
     @classmethod
-    def record(cls, session, user, source, channel, message):
+    def record(cls, session: orm.Session, user, source, server_id, channel, message):
         msg = cls()
         msg.user = user
         msg.source_id = source
+        msg.server_id = server_id
         msg.content = message
         msg.channel = channel
         session.add(msg)
+
+    @classmethod
+    def get_server_msgs(cls, session: orm.Session, server_id):
+        return session.query(UserMessage).filter_by(server_id=server_id).all()
+
+
+class Quotes(Base):
+
+    __tablename__ = "quotes"
+
+    quote_id = Column(Integer, primary_key=True)
+    server_quote_id = Column(Integer)
+    content = Column(Unicode, nullable=False)
+    created_on = Column(DateTime, default=datetime.now())
+
+    @classmethod
+    def add(cls, session: orm.Session, server, author, content):
+        quote = cls(content=content, author=author, server=server)
+        session.add(cls)
 
 
 def init_db(config):
@@ -104,10 +137,14 @@ def init_db(config):
         dsn = "sqlite://"
     if "sqlite" not in dsn:
         opts.update(dict(pool_size=20, pool_recycle=3600))
-    engine = create_engine(dsn, echo=True, **opts)
-    Base.metadata.create_all(engine)
-    Session.configure(bind=engine)
-    log.debug("Configured database")
+    try:
+        engine = create_engine(dsn, echo=True, **opts)
+        Base.metadata.create_all(engine)
+        Session.configure(bind=engine)
+    except Exception as err:
+        print(err)
+    else:
+        log.debug("Configured database successfully")
 
 
 

@@ -1,5 +1,5 @@
 import irc3
-from roboto import commands, markov_model
+from roboto import commands
 
 
 @irc3.plugin
@@ -24,12 +24,11 @@ class TwitchClient(object):
             task.set_client_twitch(self.bot)
             task.set_source(commands.TaskSource.twitch)
             task.set_channel(target)
+            task.set_server_id(target)
             task.set_user(mask.nick)
             await commands.dispatcher.add_task(task)
         else:
-            markov_model.record(data)
             self.input_lines += 1
             if self.input_lines % 1 == 0:
                 await commands.dispatcher.add_task(
                     commands.TaskState(commands.Commands.rebuild_markov, []))
-                markov_model.rebuild_chain()
