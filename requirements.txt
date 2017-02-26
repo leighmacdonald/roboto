@@ -2,8 +2,8 @@ sqlalchemy
 youtube_dl
 aiohttp_jinja2
 ipgetter
-requests
 irc3
 markovify
 discord.py
 discord.py[voice]
+sqlalchemy_repr
