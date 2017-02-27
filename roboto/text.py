@@ -28,7 +28,7 @@ class MarkovModel(object):
     def rebuild_chain(self, session: orm.Session):
         from roboto.model import UserMessage
         msgs = UserMessage.get_server_msgs(session, self.server_id)
-        self.model = markovify.Text("".join([m.content for m in msgs]), state_size=self.state_size)
+        self.model = markovify.Text("\n".join([m.content for m in msgs]), state_size=self.state_size)
         log.debug("Read {} server messages".format(len(msgs)))
 
     def make_sentence_with_start(self, start):
@@ -36,11 +36,6 @@ class MarkovModel(object):
 
     def make_sentence(self, tries=20):
         return self.model.make_sentence(tries=tries)
-
-    def record(self, sentence):
-        s = normalize(sentence)
-        if s:
-            self._new_data.append("{}\n".format(s))
 
 
 def normalize(t):

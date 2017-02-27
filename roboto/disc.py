@@ -1,15 +1,34 @@
 from logging import getLogger
 import discord
-from discord.enums import ChannelType
-from roboto import commands, state
-from roboto import loop, config
+from sqlalchemy.exc import DBAPIError
 
+from roboto import commands, state
+from roboto import loop
+from roboto.model import Session, Server
 
 dc = discord.Client(loop=loop)
-
-voice_channel = None
-
 log = getLogger("discord")
+
+
+@dc.async_event
+async def on_voice_state_update(before, after):
+    session = Session()
+    try:
+        if after.voice_channel:
+            voice_channel_id = after.voice_channel.id
+        else:
+            voice_channel_id = None
+        server = Server.get(session, after.server.id)
+        server.voice_channel_id = voice_channel_id
+        session.commit()
+    except DBAPIError:
+        log.exception("Failed to update voice state")
+        session.rollback()
+
+
+@dc.async_event
+async def on_channel_update(before, after):
+    pass
 
 
 @dc.async_event
@@ -26,12 +45,8 @@ async def on_message(message):
 
 @dc.event
 async def on_ready():
-    global voice_channel
     log.info("logged in: {}/{}".format(dc.user.name, dc.user.id))
     for channel in dc.get_all_channels():
         await state.servers.get_server(channel.server.id)
-        if channel.type == ChannelType.voice and channel.id in config.get("voice_channels", []):
-            voice_channel = await dc.join_voice_channel(channel)
-            log.info("Joined voice channel: {}".format(channel))
 
 

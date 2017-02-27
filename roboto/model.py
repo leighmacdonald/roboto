@@ -4,8 +4,10 @@ from datetime import datetime
 from sqlalchemy import Column, Enum, Integer, Unicode, ForeignKey, create_engine
 from sqlalchemy import CheckConstraint, orm
 from sqlalchemy import DateTime
+from sqlalchemy import String
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
+from sqlalchemy.orm.exc import NoResultFound
 from sqlalchemy_repr import RepresentableBase
 
 
@@ -26,26 +28,35 @@ Base = declarative_base(cls=RepresentableBase)
 class Server(Base):
     __tablename__ = "server"
 
-    server_id = Column(Integer, primary_key=True, autoincrement=False)
+    server_id = Column(String, primary_key=True, autoincrement=False)
     twitch_id = Column(Unicode, unique=True)
+    voice_channel_id = Column(String)
     created_on = Column(DateTime, default=datetime.now())
 
     @classmethod
-    def get(cls, session, server_id):
-        return session.query(cls).filter_by(server_id=server_id).one()
+    def get(cls, session, server_id, create=False):
+        try:
+            server = session.query(cls).filter_by(server_id=server_id).one()
+        except NoResultFound:
+            if create:
+                server = cls(server_id=server_id)
+                session.add(server)
+            else:
+                raise
+        return server
 
 
 class User(Base):
     __tablename__ = 'user'
 
     user_id = Column(Integer, primary_key=True)
-    discord_id = Column(Integer, unique=True, nullable=True)
+    discord_id = Column(String, unique=True, nullable=True)
     twitch_id = Column(Unicode, unique=True, nullable=True)
     created_on = Column(DateTime, nullable=False, default=datetime.now())
 
     __table_args__ = (
         # We must have at least one ID
-        CheckConstraint('discord_id or twitch_id', name="check_user_id"),
+        CheckConstraint('discord_id IS NOT NULL or twitch_id IS NOT NULL', name="check_user_id"),
     )
 
     @staticmethod
@@ -138,13 +149,10 @@ def init_db(config):
     if "sqlite" not in dsn:
         opts.update(dict(pool_size=20, pool_recycle=3600))
     try:
-        engine = create_engine(dsn, echo=True, **opts)
+        engine = create_engine(dsn, echo=False, **opts)
         Base.metadata.create_all(engine)
         Session.configure(bind=engine)
     except Exception as err:
         print(err)
     else:
         log.debug("Configured database successfully")
-
-
-

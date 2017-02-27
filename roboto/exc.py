@@ -4,3 +4,7 @@ class RobotoException(Exception):
 
 class ValidationError(RobotoException):
     pass
+
+
+class InvalidArgument(ValidationError):
+    pass

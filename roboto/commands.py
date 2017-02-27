@@ -2,14 +2,15 @@ import asyncio
 from enum import Enum
 import discord
 import irc3
+from discord import ChannelType
 from sqlalchemy import orm
 from sqlalchemy.exc import DBAPIError
 from roboto import config, loop, logger
 from roboto import media
 from roboto import overwatch
 from roboto import text
-from roboto.exc import ValidationError
-from roboto.model import Session, User, UserMessage, TaskSource, log
+from roboto.exc import ValidationError, InvalidArgument
+from roboto.model import Session, User, UserMessage, TaskSource, log, Server
 
 
 def parse_message(msg: str):
@@ -29,13 +30,14 @@ def parse_message(msg: str):
     return TaskState(cmd, args[1:])
 
 
-def helpstr(help_msg: str):
+def helpstr(help_msg: str, num_args=None):
     """ Sets the help string shown to users using the help command for the decorated do_* methods
 
     :return:
     :rtype: callable
     """
     def tags_decorator(func):
+        func.__num_args__ = num_args
         func.__help__ = help_msg
         return func
     return tags_decorator
@@ -48,13 +50,17 @@ class Commands(Enum):
     play = 1
     next = 2
     stop = 3
-    playlist = 4
-    join_voice = 5
+    vol = 4
+    playlist = 5
+    join_voice = 6
+    now_playing = 7
+    np = 8
     pl = 4
     talk = 10
     record = 11
     rank = 50
-    rebuild_markov = 4
+    yt = 51
+    rebuild_markov = 80
     server_connect = 90
     help = 98
     unknown = 99
@@ -203,12 +209,27 @@ class CommandDispatcher(asyncio.Queue):
         except AttributeError:
             logger.error("Got invalid/unimplemented task: {}".format(task.command))
         else:
+            try:
+                if fn.__num_args__ is not None:
+                    if fn.__num_args__ != len(task.args):
+                        raise InvalidArgument("Your arguments are invalid")
+            except AttributeError:
+                pass
+            except InvalidArgument as err:
+                return await self.do_help(task, error_str=str(err), cmd=task.command.name)
             await fn(task)
 
-    @helpstr("Instruct the bot to join a voice channel")
+    @helpstr("Show the title of the currently playing song", num_args=0)
+    async def do_now_playing(self, task: TaskState):
+        try:
+            await media.send_now_playing(task.server_id, task.channel)
+        except AttributeError:
+            await media.send_now_playing(task.server_id)
+
+    do_np = do_now_playing
+
+    @helpstr("Instruct the bot to join a voice channel", num_args=1)
     async def do_join_voice(self, task: TaskState):
-        if not task.args:
-            return await self.send_message(task, self.gen_help(Commands.join_voice))
         client = task.get_client_discord()
         channel = client.get_channel(task.args[0])
         # todo correct ???
@@ -217,21 +238,34 @@ class CommandDispatcher(asyncio.Queue):
 
     @staticmethod
     async def do_server_connect(task: TaskState):
+        from roboto.disc import dc
         session = Session()
+        server_info = Server.get(session, task.server_id, create=True)
         try:
             server = await task.server()
+            await asyncio.sleep(1)
+            dsc_server = dc.get_server(task.server_id)
+            await asyncio.sleep(1)
+            for channel in dsc_server.channels:
+                if channel.type == ChannelType.voice and channel.id == server_info.voice_channel_id:
+                    vc = await dc.join_voice_channel(channel)
+                    if channel.id != server_info.voice_channel_id:
+                        server_info.voice_channel_id = channel.id
+                    server.set_voice_channel(channel.id)
+                    server.voice_client = vc
             server.markov_model.rebuild_chain(session)
             session.commit()
         except DBAPIError:
             log.exception("Exception during server connect event")
             session.rollback()
+        except AttributeError:
+            pass
 
     @helpstr("Generate a random sentence")
     async def do_talk(self, task: TaskState):
         server = await task.server()
         if len(task.args) >= 1:
-            v = " ".join(task.args[1:])
-            t = server.markov_model.make_sentence_with_start(v)
+            t = server.markov_model.make_sentence_with_start(" ".join(task.args))
         else:
             t = server.markov_model.make_sentence(tries=20)
         if not t:
@@ -244,14 +278,15 @@ class CommandDispatcher(asyncio.Queue):
             return False
         session = Session()
         try:
-            UserMessage.record(session, task.get_user(session), task.source, task.server_id, task.channel, task.args[0])
+            UserMessage.record(session, task.get_user(session), task.source,
+                               task.server_id, task.channel, task.args[0])
             session.commit()
         except DBAPIError:
             session.rollback()
             log.exception("Failed to add new message")
             return False
         else:
-            log.info("Recording message")
+            log.debug("Recorded message")
             return True
 
     @staticmethod
@@ -259,10 +294,11 @@ class CommandDispatcher(asyncio.Queue):
         if not message:
             return False
         if task.source == TaskSource.discord:
-            channel = task._client_discord.get_channel(task.channel)
-            await task._client_discord.send_message(channel, message)
+            disc = task.get_client_discord()
+            channel = disc.get_channel(task.channel)
+            await disc.send_message(channel, message)
         elif task.source == TaskSource.twitch:
-            await task._client_twitch.privmsg(task.channel, message)
+            await task.get_client_twitch().privmsg(task.channel, message)
         else:
             log.debug(message)
         return True
@@ -284,34 +320,54 @@ class CommandDispatcher(asyncio.Queue):
 
     @helpstr("Stop the current song/audio stream")
     async def do_stop(self, task: TaskState):
-        media.music_stop(media.media_player)
+        server = await state.servers.get_server(task.server_id)
+        media.music_stop(server)
 
     @helpstr("Show the playlist link")
     async def do_playlist(self, task: TaskState):
-        await self.send_message(task, media.music_playlist_url())
+        await self.send_message(task, media.music_playlist_url(task.server_id))
 
-    @helpstr("0-200 Change the volume of the audio stream")
-    async def do_vol(self, task: TaskState):
-        if not task.args:
-            return "Must supply 1 argument: 0-100"
+    @helpstr("Play a specific song by id", num_args=1)
+    async def do_play(self, task: TaskState):
+        server_state = await state.servers.get_server(task.server_id)
+        if media.play_file(server_state, task.args[0]):
+            await media.send_now_playing(task.server_id, task.channel)
         else:
-            try:
-                val = int(task.args[0]) / 100.0
-                media.music_set_vol(media.media_player, val)
-            except TypeError:
-                return "Invalid number. 0-100 accepted"
+            await self.send_message(task, "Failed to play song, invalid id?")
 
-    async def do_help(self, task: TaskState):
-        msg = self.gen_help(task.args[0] if task.args else None)
+    @helpstr("0-200 Change the volume of the audio stream", num_args=1)
+    async def do_vol(self, task: TaskState):
+        server = await state.servers.get_server(task.server_id)
+        media_player = server.get_media_player()
+        if not media_player:
+            return
+        try:
+            val = int(task.args[0]) / 100.0
+        except TypeError:
+            return "Invalid number. 0-100 accepted"
+        else:
+            media_player.volume = val
+
+    async def do_help(self, task: TaskState, error_str=None, cmd=None):
+        if cmd:
+            task_name = cmd
+        else:
+            task_name = task.args[0] if task.args else None
+        msg = self.gen_help(task_name)
         log.debug("MSG: {}", task)
+        if error_str:
+            msg = "{} [ERR: {}]".format(msg, error_str)
         await self.send_message(task, msg)
 
+    @helpstr("Play the next song in the playlist/albun")
     async def do_next(self, task: TaskState):
-        if media.music_play_next(media.media_player):
-            return "Now Playing: {}".format(media.now_playing)
+        server_state = await state.servers.get_server(task.server_id)
+        if media.play_next(server_state):
+            await media.send_now_playing(task.server_id, task.channel)
 
+    @helpstr("Play a youtube stream")
     async def do_yt(self, task: TaskState) -> bool:
-        from roboto.disc import voice_channel
+        server_state = await state.servers.get_server(task.server_id)
         if task.args:
             url = task.args[0]
         else:
@@ -320,8 +376,9 @@ class CommandDispatcher(asyncio.Queue):
                                                  ") Majority of common sites are supported ")
         if not text.valid_url(url):
             return await self.send_message(task, "Invalid URL")
-        if await media.play_youtube(voice_channel, url):
-            return await self.send_message(task, "Now Playing YT: {}".format(media.now_playing))
+        np = await media.play_youtube(server_state, url)
+        if np:
+            return await self.send_message(task, "Now Playing YT: {}".format(np))
 
 dispatcher = CommandDispatcher(loop)
 
