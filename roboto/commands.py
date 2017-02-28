@@ -6,6 +6,7 @@ from discord import ChannelType
 from sqlalchemy import orm
 from sqlalchemy.exc import DBAPIError
 from roboto import config, loop, logger
+from roboto import games
 from roboto import media
 from roboto import overwatch
 from roboto import text
@@ -56,6 +57,7 @@ class Commands(Enum):
     now_playing = 7
     np = 8
     pl = 4
+    eight = 9
     talk = 10
     record = 11
     rank = 50
@@ -347,6 +349,10 @@ class CommandDispatcher(asyncio.Queue):
             return "Invalid number. 0-100 accepted"
         else:
             media_player.volume = val
+
+    @helpstr("Let the magic 8 ball make your decisions for you", num_args=1)
+    async def do_eight(self, task: TaskState):
+        await self.send_message(task, games.eight_ball())
 
     async def do_help(self, task: TaskState, error_str=None, cmd=None):
         if cmd:

@@ -29,7 +29,8 @@ class ServerState(object):
 
     def set_active_media_player(self, media_player):
         self._media_player = media_player
-        media_player.server_state = self if media_player else None
+        if media_player:
+            media_player.server_state = self if media_player else None
 
     def get_media_player(self) -> StreamPlayer:
         return self._media_player
